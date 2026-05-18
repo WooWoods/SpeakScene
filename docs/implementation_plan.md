@@ -2,61 +2,57 @@
 
 ## MVP Scope
 
-The first build should prove the learning loop:
+The first build proves this learning loop:
 
 ```text
-Generate task -> learner answers -> AI evaluates -> learner improves
+Start scenario -> study bilingual phrases -> guided conversation -> full-session evaluation -> favorite useful expressions
 ```
 
-Voice, login, social, payments, and WeChat integration should follow only after the text-based loop feels useful.
+The product should not require learners to translate a fixed Chinese sentence. The scenario and phrase list provide scaffolding, and the chat area provides active practice.
 
 ## Milestones
 
-### 1. Core Engine
+### 1. Scenario Engine
 
 - FastAPI app with SQLite persistence.
-- Task generation endpoint.
-- Answer submission endpoint.
-- Hint endpoint.
-- Strict feedback schema for score, correction, mistakes, and expression variants.
+- Scenario start endpoint that returns context, starter line, and 8-12 bilingual phrases.
+- Conversation turn endpoint that stores user replies and generates the next system turn.
+- Completion endpoint that evaluates the whole conversation.
 
 ### 2. Practice UI
 
-- Mobile-first React interface.
-- Level and category controls.
-- Chinese task card and keyword cards.
-- English answer input.
-- Feedback panel with multi-dimensional scores.
+- Three-column desktop layout:
+  - Left: scenario and bilingual phrasebook.
+  - Middle: chat transcript and input tools.
+  - Right: evaluation, history, and favorites.
+- Mobile layout stacks the same panels.
+- Browser TTS reads system turns aloud.
+- Voice input uses browser speech recognition where supported.
+- Handwriting MVP provides a canvas plus text submit field.
 
-### 3. Review
+### 3. Favorites
 
-- History list.
-- Mark mastered / needs review.
-- Simple spaced-review queue.
+- Expressions can be saved from the phrase list.
+- Favorites are grouped by scenario category.
+- Users can remove saved expressions.
 
-Current implementation:
+### 4. AI Provider Upgrade
 
-- `GET /api/review/due` returns unmastered attempts whose review time has arrived.
-- `POST /api/review/{attempt_id}/mastered` marks an attempt as mastered.
-- Scores below 90 are scheduled for next-day review.
-- Scores 90 and above are treated as mastered.
+- Replace deterministic mock generation with real LLM scenario packages.
+- Add real conversation continuation and evaluation prompts.
+- Add backend STT/TTS providers only after browser MVP proves the flow.
 
-### 4. Accounts
+### 5. Accounts And Growth
 
-- Email login.
-- JWT auth.
-- Numeric UID assignment.
-- User progress page.
+- Email or WeChat login.
+- User-owned history and favorites.
+- Scenario flashcards from favorites and weak points.
+- Points, streaks, badges, and Pro scenario packs.
 
-### 5. Voice
+## Current Implementation Notes
 
-- Browser recording through MediaRecorder.
-- Speech-to-text endpoint.
-- Optional TTS for corrected sentences and flashcards.
-
-### 6. Growth
-
-- Points, streaks, badges, leaderboard.
-- Friend search by UID.
-- Shareable practice card.
-- Free/Pro limits.
+- `POST /api/scenarios/start` creates a session and starter turn.
+- `POST /api/sessions/{session_id}/turns` appends a user turn and a generated system turn.
+- `POST /api/sessions/{session_id}/complete` stores the evaluation on the session.
+- `GET /api/favorites`, `POST /api/favorites`, and `DELETE /api/favorites/{favorite_id}` manage saved expressions.
+- Existing old task/attempt/review tables are not part of the new MVP flow.

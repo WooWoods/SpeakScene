@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -16,40 +16,56 @@ class User(Base):
     points: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    tasks: Mapped[list["PracticeTask"]] = relationship(back_populates="user")
+    sessions: Mapped[list["ScenarioSession"]] = relationship(back_populates="user")
 
 
-class PracticeTask(Base):
-    __tablename__ = "practice_tasks"
+class ScenarioSession(Base):
+    __tablename__ = "scenario_sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     level: Mapped[int] = mapped_column(Integer, index=True)
     category: Mapped[str] = mapped_column(String(80), index=True)
-    task_name: Mapped[str] = mapped_column(String(120))
-    cn_sentence: Mapped[str] = mapped_column(Text)
-    context_cn: Mapped[str] = mapped_column(Text)
-    keywords: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    scenario_name: Mapped[str] = mapped_column(String(160))
+    scenario_context_cn: Mapped[str] = mapped_column(Text)
+    starter_en: Mapped[str] = mapped_column(Text)
+    starter_cn: Mapped[str] = mapped_column(Text)
+    phrases: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(24), default="active", index=True)
+    evaluation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    user: Mapped[User | None] = relationship(back_populates="tasks")
-    attempts: Mapped[list["PracticeAttempt"]] = relationship(back_populates="task")
+    user: Mapped[User | None] = relationship(back_populates="sessions")
+    turns: Mapped[list["ConversationTurn"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ConversationTurn.created_at",
+    )
 
 
-class PracticeAttempt(Base):
-    __tablename__ = "practice_attempts"
+class ConversationTurn(Base):
+    __tablename__ = "conversation_turns"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    task_id: Mapped[int] = mapped_column(ForeignKey("practice_tasks.id"), index=True)
-    user_input: Mapped[str] = mapped_column(Text)
-    feedback: Mapped[dict] = mapped_column(JSON)
-    score: Mapped[int] = mapped_column(Integer, index=True)
-    mastered: Mapped[bool] = mapped_column(Boolean, default=False)
-    review_due_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=lambda: datetime.utcnow() + timedelta(days=1),
-        index=True,
-    )
+    session_id: Mapped[int] = mapped_column(ForeignKey("scenario_sessions.id"), index=True)
+    speaker: Mapped[str] = mapped_column(String(16), index=True)
+    text_en: Mapped[str] = mapped_column(Text)
+    text_cn: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_mode: Mapped[str] = mapped_column(String(24), default="typing")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    task: Mapped[PracticeTask] = relationship(back_populates="attempts")
+    session: Mapped[ScenarioSession] = relationship(back_populates="turns")
+
+
+class FavoriteExpression(Base):
+    __tablename__ = "favorite_expressions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    category: Mapped[str] = mapped_column(String(80), index=True)
+    scenario_name: Mapped[str] = mapped_column(String(160), index=True)
+    phrase_en: Mapped[str] = mapped_column(Text)
+    phrase_cn: Mapped[str] = mapped_column(Text)
+    usage_note_cn: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

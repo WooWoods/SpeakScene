@@ -1,44 +1,54 @@
 # SpeakScene
 
-SpeakScene is an AI-powered scenario English practice app for Chinese learners. The MVP focuses on the core loop:
+SpeakScene is an AI-powered scenario English practice app for Chinese learners. The MVP focuses on a scenario-led conversation loop:
 
-1. Generate a level-specific Chinese scenario.
-2. Show core English keyword cards.
-3. Let the learner answer in English.
-4. Return structured AI feedback with score, corrections, and better alternatives.
+1. Choose a scenario category and level.
+2. Review common bilingual phrases for that scenario.
+3. Let the system start the conversation and read the starter aloud.
+4. Reply by voice, typing, or handwriting-pad text submit.
+5. Complete the conversation and receive multidimensional feedback.
+6. Favorite authentic expressions by scenario category.
 
 ## Project Layout
 
 ```text
-backend/   FastAPI, SQLite, SQLAlchemy, prompt and practice services
-frontend/  React, Vite, Tailwind CSS practice interface
+backend/   FastAPI, SQLite, SQLAlchemy, scenario conversation services
+frontend/  React, Vite, Tailwind CSS three-column practice workspace
 docs/      Implementation notes
 ```
 
 ## Backend
 
-```powershell
+```bash
 cd backend
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
+```
+
+Or run:
+
+```bash
+./backend/start_app.sh
 ```
 
 The API will be available at `http://localhost:8000`.
 
 MVP endpoints:
 
-- `POST /api/tasks/generate`
-- `POST /api/attempts/submit`
-- `POST /api/hints`
+- `POST /api/scenarios/start`
+- `GET /api/sessions/{session_id}`
+- `POST /api/sessions/{session_id}/turns`
+- `POST /api/sessions/{session_id}/complete`
 - `GET /api/history`
-- `GET /api/review/due`
-- `POST /api/review/{attempt_id}/mastered`
+- `GET /api/favorites`
+- `POST /api/favorites`
+- `DELETE /api/favorites/{favorite_id}`
 
 ## Frontend
 
-```powershell
+```bash
 cd frontend
 npm install
 npm run dev
@@ -49,6 +59,6 @@ The app will be available at the URL printed by Vite, usually `http://localhost:
 ## MVP Notes
 
 - The backend currently uses a local mock AI service by default so development can continue without paid API keys.
-- Add real LLM/STT/TTS providers behind `backend/app/services/ai_client.py`.
-- SQLite is created automatically at `backend/speakscene.db` during backend startup.
-- Review logic is intentionally simple: low-score attempts return the next day, mastered attempts are delayed for 30 days.
+- Browser TTS uses `speechSynthesis`; voice input uses `SpeechRecognition` or `webkitSpeechRecognition` where available.
+- Handwriting input is a canvas plus manual text submit in this MVP; OCR is future work.
+- SQLite creates the new scenario/session/favorites tables automatically during backend startup.

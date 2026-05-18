@@ -1,127 +1,78 @@
 LEVEL_PROFILES = {
     1: {
         "name": "启蒙",
-        "tone": "极度鼓励，容错高，关注关键词输出",
-        "scenes": [
-            "supermarket fruit shelf",
-            "toy store",
-            "zoo ticket gate",
-            "playground slide",
-            "classroom colors game",
-            "family breakfast",
-            "birthday party",
-            "pet shop",
-            "park picnic",
-            "ice cream stand",
-            "clothing store",
-            "bus stop with parents",
-            "school bag packing",
-            "bedtime story",
-            "doctor checkup",
-            "library picture book corner",
-            "art class",
-            "sports day",
-            "farm visit",
-            "train station with family",
-        ],
+        "tone": "短句、强鼓励、生活化，不要求完整复杂输出",
+        "scenes": ["toy store", "ice cream stand", "zoo ticket gate", "family breakfast"],
     },
     2: {
         "name": "进阶",
-        "tone": "关注考试常见语法、时态、介词、单复数",
-        "scenes": [
-            "asking a teacher about homework",
-            "borrowing books at the library",
-            "joining a school club",
-            "planning a weekend hobby",
-            "preparing for an exam",
-            "asking for directions on campus",
-            "ordering food in the cafeteria",
-            "talking about a class project",
-            "inviting a classmate to practice",
-            "reporting a lost item",
-            "making an appointment with a teacher",
-            "discussing a group presentation",
-            "checking the school timetable",
-            "asking about sports practice",
-            "buying stationery",
-            "talking about vacation plans",
-            "describing a favorite movie",
-            "asking about a museum visit",
-            "joining an online class",
-            "asking for help with a math problem",
-        ],
+        "tone": "校园和日常交流，关注基础语法、时态和清晰表达",
+        "scenes": ["asking a teacher about homework", "library help desk", "school club signup", "cafeteria order"],
     },
     3: {
         "name": "实战",
-        "tone": "关注礼貌度、地道性、商务和旅行场景表达",
-        "scenes": [
-            "client meeting",
-            "project kickoff",
-            "rescheduling a business call",
-            "airport check-in",
-            "hotel front desk",
-            "restaurant reservation",
-            "asking for an invoice",
-            "confirming delivery details",
-            "negotiating a deadline",
-            "giving feedback to a teammate",
-            "clarifying data in a meeting",
-            "networking at a conference",
-            "handling a customer complaint",
-            "requesting technical support",
-            "booking a taxi",
-            "asking about dietary requirements",
-            "checking out of a hotel",
-            "making a small talk introduction",
-            "confirming a contract detail",
-            "following up after an interview",
-            "explaining a product issue",
-            "asking for a refund",
-            "arranging a factory visit",
-            "discussing budget constraints",
-        ],
+        "tone": "商务、旅行和跨文化沟通，关注礼貌度、地道性和场景契合",
+        "scenes": ["client meeting", "hotel front desk", "restaurant reservation", "airport check-in"],
     },
 }
 
 
-SCENARIO_GENERATION_CONTRACT = """
-Generate one realistic English-learning scenario name for the requested level.
-Return strict JSON with:
-- scenario_name: short English scenario name, 3-8 words
-- reason_cn: short Chinese explanation of why it fits the level
+SCENARIO_PACKAGE_CONTRACT = """
+Return strict JSON for a scenario-led English practice session:
+- scenario_name: short English scenario name
+- scenario_context_cn: one concrete Chinese sentence describing the situation
+- starter_en: the first natural English sentence spoken by the system
+- starter_cn: Chinese meaning of starter_en
+- phrases: 8-12 bilingual common expressions for this scenario
+
+Each phrase must contain:
+- en: authentic English expression
+- cn: Chinese meaning
+- usage_note_cn: short Chinese usage note
+- tone: one of polite, neutral, casual, professional
+- favorite_candidate: boolean
 
 Rules:
-- Match the learner level profile and category.
-- Prefer everyday, concrete situations over broad labels.
-- Do not return a dialogue or a full task here; only the scenario.
-- Avoid repeating the examples already provided in the prompt.
+- Do not ask the learner to translate a required Chinese sentence.
+- The learner should be able to borrow phrases from the left phrase list.
+- Prefer common, reusable expressions over rare vocabulary.
 """
 
 
-TASK_GENERATION_CONTRACT = """
-Return a JSON object with:
-- task_name: short Chinese title
-- cn_sentence: Chinese sentence the learner should express in English
-- context_cn: one-sentence Chinese context
-- keywords: array of 3-4 objects with text, phonetic, meaning_cn, example
+CONVERSATION_CONTINUATION_CONTRACT = """
+Return strict JSON with:
+- text_en: one natural next system message in English
+- text_cn: Chinese meaning of text_en
+
+Rules:
+- Stay inside the selected scenario.
+- Keep the conversation moving with a clear next prompt or response.
+- Keep the sentence short enough for speaking practice.
 """
 
 
-FEEDBACK_CONTRACT = """
-Return strict JSON with score, grammar_score, authenticity_score, politeness_score,
-corrected_sentence, feedback_cn, mistakes, and alternatives.
-alternatives must contain polite, neutral, casual English versions.
+EVALUATION_CONTRACT = """
+Return strict JSON with:
+- overall_score, vocabulary_score, grammar_score, authenticity_score, fluency_score
+- feedback_cn
+- strengths: Chinese bullet strings
+- improvements: Chinese bullet strings
+- suggested_phrases: 3-5 phrase objects using the same phrase schema
+
+Evaluate the user's turns across the whole conversation, not a single required sentence.
 """
 
 
-def build_scenario_generation_prompt(level: int, category: str) -> str:
+def build_scenario_package_prompt(level: int, category: str, scenario_name: str | None = None) -> str:
     profile = LEVEL_PROFILES[level]
-    examples = ", ".join(profile["scenes"][:8])
+    requested = scenario_name or "choose the most useful concrete scenario"
+    examples = ", ".join(profile["scenes"])
     return f"""
-{SCENARIO_GENERATION_CONTRACT}
+{SCENARIO_PACKAGE_CONTRACT}
 
 Level: {level} - {profile["name"]}
 Level tone: {profile["tone"]}
 Category: {category}
-Example scenarios to avoid copying exactly: {examples}
+Requested scenario: {requested}
+Example scenarios: {examples}
 """

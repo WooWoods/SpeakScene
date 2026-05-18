@@ -1,3 +1,3 @@
-from app.models.practice import PracticeAttempt, PracticeTask, User
+from app.models.practice import ConversationTurn, FavoriteExpression, ScenarioSession, User
 
-__all__ = ["PracticeAttempt", "PracticeTask", "User"]
+__all__ = ["ConversationTurn", "FavoriteExpression", "ScenarioSession", "User"]

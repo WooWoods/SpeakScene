@@ -1,93 +1,106 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
-class Keyword(BaseModel):
-    text: str
-    phonetic: str | None = None
-    meaning_cn: str
-    example: str | None = None
+class ScenarioPhrase(BaseModel):
+    en: str
+    cn: str
+    usage_note_cn: str = ""
+    tone: str = "neutral"
+    favorite_candidate: bool = True
 
 
-class PracticeTaskCreateRequest(BaseModel):
+class ScenarioStartRequest(BaseModel):
     level: int = Field(3, ge=1, le=3)
     category: str = "business"
-    scenario_name: str | None = Field(None, min_length=1, max_length=120)
+    scenario_name: str | None = Field(None, min_length=1, max_length=160)
     user_id: int | None = None
 
 
-class PracticeTaskResponse(BaseModel):
+class ConversationTurnResponse(BaseModel):
     id: int
-    level: int
-    category: str
-    task_name: str
-    cn_sentence: str
-    context_cn: str
-    keywords: list[Keyword]
+    session_id: int
+    speaker: Literal["system", "user"]
+    text_en: str
+    text_cn: str | None = None
+    input_mode: Literal["system", "voice", "typing", "handwriting"]
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
 
-class Mistake(BaseModel):
-    type: str
-    original: str
-    suggestion: str
-    explanation_cn: str
-
-
-class Alternatives(BaseModel):
-    polite: str
-    neutral: str
-    casual: str
-
-
-class Feedback(BaseModel):
-    score: int = Field(..., ge=0, le=100)
+class ConversationEvaluation(BaseModel):
+    overall_score: int = Field(..., ge=0, le=100)
+    vocabulary_score: int = Field(..., ge=0, le=100)
     grammar_score: int = Field(..., ge=0, le=100)
     authenticity_score: int = Field(..., ge=0, le=100)
-    politeness_score: int = Field(..., ge=0, le=100)
-    corrected_sentence: str
+    fluency_score: int = Field(..., ge=0, le=100)
     feedback_cn: str
-    mistakes: list[Mistake] = []
-    alternatives: Alternatives
+    strengths: list[str] = []
+    improvements: list[str] = []
+    suggested_phrases: list[ScenarioPhrase] = []
 
 
-class AttemptRequest(BaseModel):
-    task_id: int
-    user_input: str = Field(..., min_length=1, max_length=1000)
-
-
-class AttemptResponse(BaseModel):
+class ScenarioSessionResponse(BaseModel):
     id: int
-    task_id: int
-    user_input: str
-    score: int
-    mastered: bool
-    review_due_at: datetime
-    feedback: Feedback
+    user_id: int | None = None
+    level: int
+    category: str
+    scenario_name: str
+    scenario_context_cn: str
+    starter_en: str
+    starter_cn: str
+    phrases: list[ScenarioPhrase]
+    status: Literal["active", "completed"]
+    evaluation: ConversationEvaluation | None = None
+    turns: list[ConversationTurnResponse] = []
+    created_at: datetime
+    completed_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class TurnCreateRequest(BaseModel):
+    text_en: str = Field(..., min_length=1, max_length=1500)
+    input_mode: Literal["voice", "typing", "handwriting"] = "typing"
+
+
+class TurnCreateResponse(BaseModel):
+    user_turn: ConversationTurnResponse
+    system_turn: ConversationTurnResponse
+    session: ScenarioSessionResponse
+
+
+class SessionCompleteResponse(BaseModel):
+    session_id: int
+    status: Literal["completed"]
+    evaluation: ConversationEvaluation
+
+
+class FavoriteCreateRequest(BaseModel):
+    user_id: int | None = None
+    category: str = Field(..., min_length=1, max_length=80)
+    scenario_name: str = Field(..., min_length=1, max_length=160)
+    phrase_en: str = Field(..., min_length=1, max_length=1000)
+    phrase_cn: str = Field(..., min_length=1, max_length=1000)
+    usage_note_cn: str = ""
+
+
+class FavoriteResponse(BaseModel):
+    id: int
+    user_id: int | None = None
+    category: str
+    scenario_name: str
+    phrase_en: str
+    phrase_cn: str
+    usage_note_cn: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
 
-class HintRequest(BaseModel):
-    task_id: int
-
-
-class HintResponse(BaseModel):
-    task_id: int
-    hints: Alternatives
-    explanation_cn: str
-
-
-class ReviewItem(BaseModel):
-    attempt_id: int
-    task_id: int
-    cn_sentence: str
-    user_input: str
-    corrected_sentence: str
-    score: int
-    mastered: bool
-    review_due_at: datetime
+class FavoritesByCategory(BaseModel):
+    category: str
+    items: list[FavoriteResponse]

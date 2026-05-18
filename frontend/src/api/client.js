@@ -14,27 +14,30 @@ async function request(path, options = {}) {
     throw new Error(detail || `Request failed with ${response.status}`)
   }
 
+  if (response.status === 204) {
+    return null
+  }
+
   return response.json()
 }
 
-export function generateTask({ level, category, scenarioName }) {
-  return request("/tasks/generate", {
+export function startScenario({ level, category, scenarioName }) {
+  return request("/scenarios/start", {
     method: "POST",
     body: JSON.stringify({ level, category, scenario_name: scenarioName || undefined }),
   })
 }
 
-export function submitAnswer({ taskId, userInput }) {
-  return request("/attempts/submit", {
+export function addTurn({ sessionId, textEn, inputMode }) {
+  return request(`/sessions/${sessionId}/turns`, {
     method: "POST",
-    body: JSON.stringify({ task_id: taskId, user_input: userInput }),
+    body: JSON.stringify({ text_en: textEn, input_mode: inputMode }),
   })
 }
 
-export function getHints({ taskId }) {
-  return request("/hints", {
+export function completeSession({ sessionId }) {
+  return request(`/sessions/${sessionId}/complete`, {
     method: "POST",
-    body: JSON.stringify({ task_id: taskId }),
   })
 }
 
@@ -42,12 +45,19 @@ export function getHistory() {
   return request("/history")
 }
 
-export function getDueReviews() {
-  return request("/review/due")
+export function getFavorites() {
+  return request("/favorites")
 }
 
-export function markMastered({ attemptId }) {
-  return request(`/review/${attemptId}/mastered`, {
+export function createFavorite(payload) {
+  return request("/favorites", {
     method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteFavorite({ favoriteId }) {
+  return request(`/favorites/${favoriteId}`, {
+    method: "DELETE",
   })
 }
