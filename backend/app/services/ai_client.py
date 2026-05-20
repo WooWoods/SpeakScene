@@ -1,7 +1,20 @@
 from dataclasses import dataclass
+import logging
+from typing import Literal
 
-from app.prompts.templates import LEVEL_PROFILES, build_scenario_package_prompt
+from pydantic import BaseModel, Field
+
+from app.core.config import settings
+from app.prompts.templates import (
+    LEVEL_PROFILES,
+    build_conversation_continuation_prompt,
+    build_evaluation_prompt,
+    build_scenario_package_prompt,
+)
 from app.schemas.practice import ConversationEvaluation, ScenarioPhrase
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -35,6 +48,7 @@ class AIClient:
         session: GeneratedScenario,
         user_turns_count: int,
         latest_user_text: str,
+        conversation_history: list[dict] | None = None,
     ) -> GeneratedTurn:
         raise NotImplementedError
 
@@ -71,6 +85,7 @@ class MockAIClient(AIClient):
         session: GeneratedScenario,
         user_turns_count: int,
         latest_user_text: str,
+        conversation_history: list[dict] | None = None,
     ) -> GeneratedTurn:
         lowered = latest_user_text.lower()
         if user_turns_count >= 4:
@@ -207,5 +222,201 @@ class MockAIClient(AIClient):
         return ScenarioPhrase(en=en, cn=cn, usage_note_cn=note, tone=tone, favorite_candidate=True)
 
 
+class LLMPhraseOutput(BaseModel):
+    en: str
+    cn: str
+    usage_note_cn: str
+    tone: Literal["polite", "neutral", "casual", "professional"]
+    favorite_candidate: bool
+
+
+class ScenarioPackageOutput(BaseModel):
+    scenario_name: str
+    scenario_context_cn: str
+    starter_en: str
+    starter_cn: str
+    phrases: list[LLMPhraseOutput] = Field(..., min_length=8, max_length=12)
+
+
+class ConversationContinuationOutput(BaseModel):
+    text_en: str
+    text_cn: str
+
+
+class EvaluationOutput(BaseModel):
+    overall_score: int = Field(..., ge=0, le=100)
+    vocabulary_score: int = Field(..., ge=0, le=100)
+    grammar_score: int = Field(..., ge=0, le=100)
+    authenticity_score: int = Field(..., ge=0, le=100)
+    fluency_score: int = Field(..., ge=0, le=100)
+    feedback_cn: str
+    strengths: list[str]
+    improvements: list[str]
+    suggested_phrases: list[LLMPhraseOutput] = Field(..., min_length=3, max_length=5)
+
+
+class OpenAIClient(AIClient):
+    def __init__(self, api_key: str, model: str) -> None:
+        self.api_key = api_key
+        self.model = model
+
+    async def generate_scenario(
+        self,
+        level: int,
+        category: str,
+        scenario_name: str | None = None,
+    ) -> GeneratedScenario:
+        prompt = build_scenario_package_prompt(level, category, scenario_name)
+        parsed = await self._parse(prompt, ScenarioPackageOutput)
+        return GeneratedScenario(
+            level=level,
+            category=category,
+            scenario_name=parsed.scenario_name,
+            scenario_context_cn=parsed.scenario_context_cn,
+            starter_en=parsed.starter_en,
+            starter_cn=parsed.starter_cn,
+            phrases=[self._phrase_from_output(phrase) for phrase in parsed.phrases],
+        )
+
+    async def continue_conversation(
+        self,
+        session: GeneratedScenario,
+        user_turns_count: int,
+        latest_user_text: str,
+        conversation_history: list[dict] | None = None,
+    ) -> GeneratedTurn:
+        prompt = build_conversation_continuation_prompt(
+            level=session.level,
+            category=session.category,
+            scenario_name=session.scenario_name,
+            scenario_context_cn=session.scenario_context_cn,
+            phrases=[phrase.model_dump() for phrase in session.phrases],
+            user_turns_count=user_turns_count,
+            latest_user_text=latest_user_text,
+            conversation_history=conversation_history or [],
+        )
+        parsed = await self._parse(prompt, ConversationContinuationOutput)
+        return GeneratedTurn(text_en=parsed.text_en, text_cn=parsed.text_cn)
+
+    async def evaluate_conversation(
+        self,
+        session: GeneratedScenario,
+        user_turns: list[str],
+    ) -> ConversationEvaluation:
+        prompt = build_evaluation_prompt(
+            level=session.level,
+            category=session.category,
+            scenario_name=session.scenario_name,
+            scenario_context_cn=session.scenario_context_cn,
+            phrases=[phrase.model_dump() for phrase in session.phrases],
+            user_turns=user_turns,
+        )
+        parsed = await self._parse(prompt, EvaluationOutput)
+        return ConversationEvaluation(
+            overall_score=parsed.overall_score,
+            vocabulary_score=parsed.vocabulary_score,
+            grammar_score=parsed.grammar_score,
+            authenticity_score=parsed.authenticity_score,
+            fluency_score=parsed.fluency_score,
+            feedback_cn=parsed.feedback_cn,
+            strengths=parsed.strengths,
+            improvements=parsed.improvements,
+            suggested_phrases=[self._phrase_from_output(phrase) for phrase in parsed.suggested_phrases],
+        )
+
+    def _phrase_from_output(self, phrase: LLMPhraseOutput) -> ScenarioPhrase:
+        return ScenarioPhrase(
+            en=phrase.en,
+            cn=phrase.cn,
+            usage_note_cn=phrase.usage_note_cn,
+            tone=phrase.tone,
+            favorite_candidate=phrase.favorite_candidate,
+        )
+
+    async def _parse(self, prompt: str, output_model: type[BaseModel]):
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=self.api_key)
+        response = await client.responses.parse(
+            model=self.model,
+            input=[
+                {
+                    "role": "developer",
+                    "content": (
+                        "You are SpeakScene's AI service. Return only data matching the requested "
+                        "structured output schema. English should be natural and useful for spoken practice; "
+                        "Chinese fields should be clear Simplified Chinese."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            text_format=output_model,
+        )
+        parsed = response.output_parsed
+        if parsed is None:
+            raise ValueError("OpenAI response did not include parsed structured output")
+        return parsed
+
+
+class FallbackAIClient(AIClient):
+    def __init__(self, primary: AIClient, fallback: AIClient) -> None:
+        self.primary = primary
+        self.fallback = fallback
+
+    async def generate_scenario(
+        self,
+        level: int,
+        category: str,
+        scenario_name: str | None = None,
+    ) -> GeneratedScenario:
+        try:
+            return await self.primary.generate_scenario(level, category, scenario_name)
+        except Exception:
+            logger.exception("Primary AI provider failed during scenario generation; falling back to mock")
+            return await self.fallback.generate_scenario(level, category, scenario_name)
+
+    async def continue_conversation(
+        self,
+        session: GeneratedScenario,
+        user_turns_count: int,
+        latest_user_text: str,
+        conversation_history: list[dict] | None = None,
+    ) -> GeneratedTurn:
+        try:
+            return await self.primary.continue_conversation(
+                session,
+                user_turns_count,
+                latest_user_text,
+                conversation_history,
+            )
+        except Exception:
+            logger.exception("Primary AI provider failed during conversation continuation; falling back to mock")
+            return await self.fallback.continue_conversation(
+                session,
+                user_turns_count,
+                latest_user_text,
+                conversation_history,
+            )
+
+    async def evaluate_conversation(
+        self,
+        session: GeneratedScenario,
+        user_turns: list[str],
+    ) -> ConversationEvaluation:
+        try:
+            return await self.primary.evaluate_conversation(session, user_turns)
+        except Exception:
+            logger.exception("Primary AI provider failed during evaluation; falling back to mock")
+            return await self.fallback.evaluate_conversation(session, user_turns)
+
+
 def get_ai_client() -> AIClient:
-    return MockAIClient()
+    mock_client = MockAIClient()
+    if settings.ai_provider.lower() != "openai":
+        return mock_client
+    if not settings.openai_api_key:
+        return mock_client
+    return FallbackAIClient(
+        OpenAIClient(api_key=settings.openai_api_key, model=settings.openai_model),
+        mock_client,
+    )

@@ -85,11 +85,26 @@ async def add_user_turn(
         .filter(ConversationTurn.speaker == "user")
         .count()
     )
+    history_turns = (
+        db.query(ConversationTurn)
+        .filter(ConversationTurn.session_id == session.id)
+        .order_by(ConversationTurn.created_at.asc(), ConversationTurn.id.asc())
+        .all()
+    )
+    conversation_history = [
+        {
+            "speaker": turn.speaker,
+            "text_en": turn.text_en,
+            "text_cn": turn.text_cn,
+        }
+        for turn in history_turns
+    ]
     ai_client = get_ai_client()
     generated_turn = await ai_client.continue_conversation(
         _session_to_generated(session),
         user_turns_count,
-        payload.text_en,
+        payload.text_en.strip(),
+        conversation_history,
     )
     system_turn = ConversationTurn(
         session_id=session.id,

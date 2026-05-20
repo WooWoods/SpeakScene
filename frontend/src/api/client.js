@@ -21,6 +21,23 @@ async function request(path, options = {}) {
   return response.json()
 }
 
+export async function synthesizeSpeech(text) {
+  const response = await fetch(`${API_BASE_URL}/tts/speech`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text }),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(detail || `Request failed with ${response.status}`)
+  }
+
+  return response.blob()
+}
+
 export function startScenario({ level, category, scenarioName }) {
   return request("/scenarios/start", {
     method: "POST",

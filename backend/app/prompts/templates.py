@@ -1,3 +1,6 @@
+import json
+
+
 LEVEL_PROFILES = {
     1: {
         "name": "启蒙",
@@ -75,4 +78,71 @@ Level tone: {profile["tone"]}
 Category: {category}
 Requested scenario: {requested}
 Example scenarios: {examples}
+"""
+
+
+def build_conversation_continuation_prompt(
+    *,
+    level: int,
+    category: str,
+    scenario_name: str,
+    scenario_context_cn: str,
+    phrases: list[dict],
+    user_turns_count: int,
+    latest_user_text: str,
+    conversation_history: list[dict],
+) -> str:
+    profile = LEVEL_PROFILES[level]
+    payload = {
+        "level": level,
+        "level_name": profile["name"],
+        "level_tone": profile["tone"],
+        "category": category,
+        "scenario_name": scenario_name,
+        "scenario_context_cn": scenario_context_cn,
+        "phrases": phrases,
+        "user_turns_count": user_turns_count,
+        "latest_user_text": latest_user_text,
+        "conversation_history": conversation_history,
+    }
+    return f"""
+{CONVERSATION_CONTINUATION_CONTRACT}
+
+You are the system-side conversation partner in SpeakScene.
+Respond naturally as the role implied by the scenario, not as a teacher explaining the app.
+Use Chinese only for text_cn.
+
+Context:
+{json.dumps(payload, ensure_ascii=False)}
+"""
+
+
+def build_evaluation_prompt(
+    *,
+    level: int,
+    category: str,
+    scenario_name: str,
+    scenario_context_cn: str,
+    phrases: list[dict],
+    user_turns: list[str],
+) -> str:
+    profile = LEVEL_PROFILES[level]
+    payload = {
+        "level": level,
+        "level_name": profile["name"],
+        "level_tone": profile["tone"],
+        "category": category,
+        "scenario_name": scenario_name,
+        "scenario_context_cn": scenario_context_cn,
+        "phrases": phrases,
+        "user_turns": user_turns,
+    }
+    return f"""
+{EVALUATION_CONTRACT}
+
+You are evaluating a Chinese learner's spoken-English practice.
+Give practical Chinese feedback, score fairly, and suggest reusable expressions.
+
+Context:
+{json.dumps(payload, ensure_ascii=False)}
 """

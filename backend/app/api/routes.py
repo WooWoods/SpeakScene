@@ -11,6 +11,7 @@ from app.schemas.practice import (
     ScenarioSessionResponse,
     ScenarioStartRequest,
     SessionCompleteResponse,
+    TextToSpeechRequest,
     TurnCreateRequest,
     TurnCreateResponse,
 )
@@ -24,6 +25,7 @@ from app.services.practice_service import (
     list_history,
     start_scenario,
 )
+from app.services.tts_service import TextToSpeechError, synthesize_speech
 
 router = APIRouter()
 
@@ -73,6 +75,15 @@ async def finish_session(session_id: int, db: Session = Depends(get_db)) -> Sess
         raise HTTPException(status_code=404, detail="Scenario session not found")
     evaluation = await complete_session(db, session)
     return SessionCompleteResponse(session_id=session.id, status="completed", evaluation=evaluation)
+
+
+@router.post("/tts/speech")
+async def create_speech(payload: TextToSpeechRequest) -> Response:
+    try:
+        audio = await synthesize_speech(payload.text)
+    except TextToSpeechError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 @router.get("/history", response_model=list[ScenarioSessionResponse])

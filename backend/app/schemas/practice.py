@@ -64,13 +64,17 @@ class ScenarioSessionResponse(BaseModel):
 
 class TurnCreateRequest(BaseModel):
     text_en: str = Field(..., min_length=1, max_length=1500)
-    input_mode: Literal["voice", "typing", "handwriting"] = "typing"
+    input_mode: Literal["voice", "typing"] = "typing"
 
 
 class TurnCreateResponse(BaseModel):
     user_turn: ConversationTurnResponse
     system_turn: ConversationTurnResponse
     session: ScenarioSessionResponse
+
+
+class TextToSpeechRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=1500)
 
 
 class SessionCompleteResponse(BaseModel):

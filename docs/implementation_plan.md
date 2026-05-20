@@ -28,7 +28,6 @@ The product should not require learners to translate a fixed Chinese sentence. T
 - Mobile layout stacks the same panels.
 - Browser TTS reads system turns aloud.
 - Voice input uses browser speech recognition where supported.
-- Handwriting MVP provides a canvas plus text submit field.
 
 ### 3. Favorites
 

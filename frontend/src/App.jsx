@@ -3,10 +3,8 @@ import {
   BookmarkCheck,
   Bot,
   CheckCircle2,
-  Eraser,
   Loader2,
   Mic,
-  PenLine,
   Play,
   Plus,
   Send,
@@ -23,6 +21,7 @@ import {
   getFavorites,
   getHistory,
   startScenario,
+  synthesizeSpeech,
 } from "./api/client"
 
 const categories = [
@@ -38,13 +37,26 @@ const levels = [
   { id: 3, label: "实战" },
 ]
 
-function speak(text) {
+function speakWithBrowser(text) {
   if (!("speechSynthesis" in window)) return
   window.speechSynthesis.cancel()
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = "en-US"
   utterance.rate = 0.92
   window.speechSynthesis.speak(utterance)
+}
+
+async function speak(text) {
+  try {
+    const audioBlob = await synthesizeSpeech(text)
+    const audioUrl = URL.createObjectURL(audioBlob)
+    const audio = new Audio(audioUrl)
+    audio.addEventListener("ended", () => URL.revokeObjectURL(audioUrl), { once: true })
+    audio.addEventListener("error", () => URL.revokeObjectURL(audioUrl), { once: true })
+    await audio.play()
+  } catch {
+    speakWithBrowser(text)
+  }
 }
 
 function ScoreBar({ label, value }) {
@@ -61,99 +73,11 @@ function ScoreBar({ label, value }) {
   )
 }
 
-function HandwritingPad({ value, onChange }) {
-  const canvasRef = useRef(null)
-  const drawingRef = useRef(false)
-
-  function point(event) {
-    const canvas = canvasRef.current
-    const rect = canvas.getBoundingClientRect()
-    const source = event.touches?.[0] ?? event
-    return {
-      x: source.clientX - rect.left,
-      y: source.clientY - rect.top,
-    }
-  }
-
-  function startDrawing(event) {
-    event.preventDefault()
-    drawingRef.current = true
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext("2d")
-    const next = point(event)
-    ctx.beginPath()
-    ctx.moveTo(next.x, next.y)
-  }
-
-  function draw(event) {
-    if (!drawingRef.current) return
-    event.preventDefault()
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext("2d")
-    const next = point(event)
-    ctx.lineTo(next.x, next.y)
-    ctx.strokeStyle = "#17211b"
-    ctx.lineWidth = 2.4
-    ctx.lineCap = "round"
-    ctx.stroke()
-  }
-
-  function stopDrawing() {
-    drawingRef.current = false
-  }
-
-  function clearPad() {
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext("2d")
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-  }
-
-  return (
-    <div className="rounded-lg border border-ink/10 bg-white p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm font-bold text-moss">
-          <PenLine size={16} />
-          <span>手写板</span>
-        </div>
-        <button
-          type="button"
-          onClick={clearPad}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-ink/10 px-2 text-xs font-bold text-moss hover:border-coral/50"
-        >
-          <Eraser size={14} />
-          清空
-        </button>
-      </div>
-      <canvas
-        ref={canvasRef}
-        width="520"
-        height="130"
-        className="mt-3 h-32 w-full touch-none rounded-md border border-dashed border-ink/20 bg-skyglass"
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
-        onTouchStart={startDrawing}
-        onTouchMove={draw}
-        onTouchEnd={stopDrawing}
-      />
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-3 h-10 w-full rounded-md border border-ink/15 px-3 text-sm outline-none focus:border-leaf focus:ring-4 focus:ring-leaf/10"
-        placeholder="把手写内容整理成英文后提交..."
-      />
-    </div>
-  )
-}
-
 export default function App() {
   const [level, setLevel] = useState(3)
   const [category, setCategory] = useState("business")
   const [session, setSession] = useState(null)
   const [typedText, setTypedText] = useState("")
-  const [handwritingText, setHandwritingText] = useState("")
-  const [activeInput, setActiveInput] = useState("typing")
   const [evaluation, setEvaluation] = useState(null)
   const [history, setHistory] = useState([])
   const [favorites, setFavorites] = useState([])
@@ -171,8 +95,7 @@ export default function App() {
   )
 
   const turns = session?.turns ?? []
-  const currentText = activeInput === "handwriting" ? handwritingText : typedText
-  const canSend = Boolean(session && currentText.trim() && !sending && session.status === "active")
+  const canSend = Boolean(session && typedText.trim() && !sending && session.status === "active")
 
   async function refreshHistory() {
     try {
@@ -195,11 +118,12 @@ export default function App() {
     setError("")
     setEvaluation(null)
     setTypedText("")
-    setHandwritingText("")
     try {
       const nextSession = await startScenario({ level: nextLevel, category: nextCategory })
       setSession(nextSession)
-      window.setTimeout(() => speak(nextSession.starter_en), 120)
+      window.setTimeout(() => {
+        speak(nextSession.starter_en)
+      }, 120)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -207,8 +131,8 @@ export default function App() {
     }
   }
 
-  async function handleSend(inputMode = activeInput) {
-    const text = (inputMode === "handwriting" ? handwritingText : typedText).trim()
+  async function handleSend(inputMode = "typing") {
+    const text = typedText.trim()
     if (!session || !text || sending) return
     setSending(true)
     setError("")
@@ -216,7 +140,6 @@ export default function App() {
       const result = await addTurn({ sessionId: session.id, textEn: text, inputMode })
       setSession(result.session)
       setTypedText("")
-      setHandwritingText("")
       speak(result.system_turn.text_en)
     } catch (err) {
       setError(err.message)
@@ -277,7 +200,6 @@ export default function App() {
     recognition.onresult = (event) => {
       const transcript = event.results?.[0]?.[0]?.transcript ?? ""
       setTypedText(transcript)
-      setActiveInput("typing")
     }
     recognition.onerror = () => setListening(false)
     recognition.onend = () => setListening(false)
@@ -414,7 +336,7 @@ export default function App() {
             <div className="flex flex-col gap-3 border-b border-ink/10 pb-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-bold text-moss">对话练习</p>
-                <p className="mt-1 text-sm text-moss">系统先开口，用户可语音、键入或手写整理后回复。</p>
+                <p className="mt-1 text-sm text-moss">系统先开口，用户可语音或键入回复。</p>
               </div>
               <button
                 type="button"
@@ -460,24 +382,6 @@ export default function App() {
               <div className="mb-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setActiveInput("typing")}
-                  className={`h-9 rounded-md px-3 text-sm font-bold ${
-                    activeInput === "typing" ? "bg-ink text-white" : "border border-ink/10 bg-white text-moss"
-                  }`}
-                >
-                  键入
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveInput("handwriting")}
-                  className={`h-9 rounded-md px-3 text-sm font-bold ${
-                    activeInput === "handwriting" ? "bg-ink text-white" : "border border-ink/10 bg-white text-moss"
-                  }`}
-                >
-                  手写
-                </button>
-                <button
-                  type="button"
                   onClick={listening ? stopListening : startListening}
                   disabled={!speechSupported}
                   className="inline-flex h-9 items-center gap-2 rounded-md border border-ink/10 bg-white px-3 text-sm font-bold text-moss disabled:cursor-not-allowed disabled:text-moss/40"
@@ -487,22 +391,18 @@ export default function App() {
                 </button>
               </div>
 
-              {activeInput === "handwriting" ? (
-                <HandwritingPad value={handwritingText} onChange={setHandwritingText} />
-              ) : (
-                <textarea
-                  value={typedText}
-                  onChange={(event) => setTypedText(event.target.value)}
-                  className="min-h-24 w-full resize-y rounded-lg border border-ink/15 bg-white p-3 text-base outline-none focus:border-leaf focus:ring-4 focus:ring-leaf/10"
-                  placeholder="Type your English reply..."
-                />
-              )}
+              <textarea
+                value={typedText}
+                onChange={(event) => setTypedText(event.target.value)}
+                className="min-h-24 w-full resize-y rounded-lg border border-ink/15 bg-white p-3 text-base outline-none focus:border-leaf focus:ring-4 focus:ring-leaf/10"
+                placeholder="Type your English reply..."
+              />
 
               <div className="mt-3 flex items-center justify-between gap-3">
                 {error ? <p className="text-sm font-semibold text-coral">{error}</p> : <span />}
                 <button
                   type="button"
-                  onClick={() => handleSend(activeInput)}
+                  onClick={() => handleSend("typing")}
                   disabled={!canSend}
                   className="inline-flex h-10 items-center gap-2 rounded-md bg-leaf px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-moss/40"
                 >
