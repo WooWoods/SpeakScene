@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -14,6 +14,8 @@ class User(Base):
     nickname: Mapped[str] = mapped_column(String(80), default="Guest Learner")
     level: Mapped[int] = mapped_column(Integer, default=3)
     points: Mapped[int] = mapped_column(Integer, default=0)
+    last_practice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    streak_days: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     sessions: Mapped[list["ScenarioSession"]] = relationship(back_populates="user")
@@ -68,4 +70,11 @@ class FavoriteExpression(Base):
     phrase_en: Mapped[str] = mapped_column(Text)
     phrase_cn: Mapped[str] = mapped_column(Text)
     usage_note_cn: Mapped[str] = mapped_column(Text, default="")
+    
+    # SRS Fields (SuperMemo-2)
+    next_review_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    repetition: Mapped[int] = mapped_column(Integer, default=0)
+    interval: Mapped[int] = mapped_column(Integer, default=1)
+    ease_factor: Mapped[float] = mapped_column(Float, default=2.5)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

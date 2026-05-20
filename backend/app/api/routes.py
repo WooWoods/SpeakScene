@@ -6,6 +6,7 @@ from app.models.practice import ScenarioSession
 from app.schemas.practice import (
     ConversationTurnResponse,
     FavoriteCreateRequest,
+    FavoriteReviewRequest,
     FavoriteResponse,
     FavoritesByCategory,
     ScenarioSessionResponse,
@@ -14,6 +15,7 @@ from app.schemas.practice import (
     TextToSpeechRequest,
     TurnCreateRequest,
     TurnCreateResponse,
+    UserResponse,
 )
 from app.services.practice_service import (
     add_user_turn,
@@ -24,6 +26,9 @@ from app.services.practice_service import (
     list_favorites,
     list_history,
     start_scenario,
+    get_or_create_default_user,
+    review_favorite,
+    get_daily_scenario,
 )
 from app.services.tts_service import TextToSpeechError, synthesize_speech
 
@@ -33,6 +38,17 @@ router = APIRouter()
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/users/me", response_model=UserResponse)
+def get_me(db: Session = Depends(get_db)) -> UserResponse:
+    user = get_or_create_default_user(db)
+    return UserResponse.model_validate(user)
+
+
+@router.get("/scenarios/daily")
+def daily_scenario() -> dict:
+    return get_daily_scenario()
 
 
 @router.post("/scenarios/start", response_model=ScenarioSessionResponse)
@@ -98,7 +114,17 @@ def favorites(db: Session = Depends(get_db)) -> list[FavoritesByCategory]:
 
 @router.post("/favorites", response_model=FavoriteResponse)
 def add_favorite(payload: FavoriteCreateRequest, db: Session = Depends(get_db)) -> FavoriteResponse:
+    user = get_or_create_default_user(db)
+    payload.user_id = user.id
     return FavoriteResponse.model_validate(create_favorite(db, payload))
+
+
+@router.post("/favorites/{favorite_id}/review", response_model=FavoriteResponse)
+def review_favorite_endpoint(favorite_id: int, payload: FavoriteReviewRequest, db: Session = Depends(get_db)) -> FavoriteResponse:
+    favorite = review_favorite(db, favorite_id, payload.quality)
+    if not favorite:
+        raise HTTPException(status_code=404, detail="Favorite expression not found")
+    return FavoriteResponse.model_validate(favorite)
 
 
 @router.delete("/favorites/{favorite_id}", status_code=204)

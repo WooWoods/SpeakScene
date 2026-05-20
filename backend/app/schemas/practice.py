@@ -3,6 +3,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+class UserResponse(BaseModel):
+    id: int
+    uid: str
+    nickname: str
+    level: int
+    points: int
+    streak_days: int
+    
+    model_config = {"from_attributes": True}
+
 
 class ScenarioPhrase(BaseModel):
     en: str
@@ -100,9 +110,16 @@ class FavoriteResponse(BaseModel):
     phrase_en: str
     phrase_cn: str
     usage_note_cn: str
+    next_review_date: datetime
+    repetition: int
+    interval: int
+    ease_factor: float
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+class FavoriteReviewRequest(BaseModel):
+    quality: int = Field(..., ge=0, le=5, description="Quality of recall: 0 (blackout) to 5 (perfect response)")
 
 
 class FavoritesByCategory(BaseModel):

@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta, date
 
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 
-from app.models.practice import ConversationTurn, FavoriteExpression, ScenarioSession
+from app.models.practice import ConversationTurn, FavoriteExpression, ScenarioSession, User
 from app.schemas.practice import (
     ConversationEvaluation,
     FavoriteCreateRequest,
@@ -15,6 +16,14 @@ from app.schemas.practice import (
 )
 from app.services.ai_client import GeneratedScenario, get_ai_client
 
+def get_or_create_default_user(db: Session) -> User:
+    user = db.query(User).first()
+    if not user:
+        user = User(uid="default", nickname="Guest Learner")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
 
 def _session_to_generated(session: ScenarioSession) -> GeneratedScenario:
     return GeneratedScenario(
@@ -33,8 +42,27 @@ def _session_response(session: ScenarioSession) -> ScenarioSessionResponse:
 
 
 async def start_scenario(db: Session, payload: ScenarioStartRequest) -> ScenarioSession:
+    user = get_or_create_default_user(db)
+    if not payload.user_id:
+        payload.user_id = user.id
+        
+    # Active Recall: fetch due favorites
+    due_favorites = db.query(FavoriteExpression).filter(
+        FavoriteExpression.user_id == user.id,
+        FavoriteExpression.next_review_date <= datetime.utcnow()
+    ).limit(2).all()
+    
+    recall_prompt = ""
+    if due_favorites:
+        phrases = [f.phrase_en for f in due_favorites]
+        recall_prompt = f" ACTIVE RECALL: Please subtly prompt the user to use these phrases during the conversation: {', '.join(phrases)}."
+
     ai_client = get_ai_client()
     generated = await ai_client.generate_scenario(payload.level, payload.category, payload.scenario_name)
+    
+    if recall_prompt:
+        generated.scenario_context_cn += f"\n\n(AI 记忆提示：在对话中试着使用你之前收藏的短语吧！)"
+        
     session = ScenarioSession(
         user_id=payload.user_id,
         level=generated.level,
@@ -136,6 +164,17 @@ async def complete_session(db: Session, session: ScenarioSession) -> Conversatio
     session.status = "completed"
     session.completed_at = datetime.utcnow()
     session.evaluation = evaluation.model_dump()
+    
+    # Streak Logic
+    user = get_or_create_default_user(db)
+    today = date.today()
+    if user.last_practice_date != today:
+        if user.last_practice_date == today - timedelta(days=1):
+            user.streak_days += 1
+        else:
+            user.streak_days = 1
+        user.last_practice_date = today
+        
     db.commit()
     db.refresh(session)
     return evaluation
@@ -188,3 +227,40 @@ def delete_favorite(db: Session, favorite_id: int) -> bool:
     db.delete(favorite)
     db.commit()
     return True
+
+
+def review_favorite(db: Session, favorite_id: int, quality: int) -> FavoriteExpression | None:
+    favorite = db.get(FavoriteExpression, favorite_id)
+    if not favorite:
+        return None
+        
+    # SM-2 Algorithm
+    if quality >= 3:
+        if favorite.repetition == 0:
+            favorite.interval = 1
+        elif favorite.repetition == 1:
+            favorite.interval = 6
+        else:
+            favorite.interval = int(round(favorite.interval * favorite.ease_factor))
+        favorite.repetition += 1
+    else:
+        favorite.repetition = 0
+        favorite.interval = 1
+        
+    favorite.ease_factor = favorite.ease_factor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+    if favorite.ease_factor < 1.3:
+        favorite.ease_factor = 1.3
+        
+    favorite.next_review_date = datetime.utcnow() + timedelta(days=favorite.interval)
+    db.commit()
+    db.refresh(favorite)
+    return favorite
+
+
+def get_daily_scenario() -> dict:
+    return {
+        "level": 3,
+        "category": "business",
+        "scenario_name": "AI 行业面试 (Daily Challenge)",
+        "description": "这是今天的每日挑战，完成可获得双倍奖励哦！"
+    }

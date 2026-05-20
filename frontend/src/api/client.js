@@ -78,3 +78,18 @@ export function deleteFavorite({ favoriteId }) {
     method: "DELETE",
   })
 }
+
+export function getUserProfile() {
+  return request("/users/me")
+}
+
+export function getDailyScenario() {
+  return request("/scenarios/daily")
+}
+
+export function reviewFavorite({ favoriteId, quality }) {
+  return request(`/favorites/${favoriteId}/review`, {
+    method: "POST",
+    body: JSON.stringify({ quality }),
+  })
+}
