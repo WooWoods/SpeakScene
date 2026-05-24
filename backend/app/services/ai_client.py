@@ -60,24 +60,29 @@ class AIClient:
         raise NotImplementedError
 
 
-class MockAIClient(AIClient):
+class MinimalFallbackAIClient(AIClient):
+    """Minimal fallback for when the primary LLM provider fails."""
+
     async def generate_scenario(
         self,
         level: int,
         category: str,
         scenario_name: str | None = None,
     ) -> GeneratedScenario:
-        self._build_scenario_package_prompt(level, category, scenario_name)
-        scenario = scenario_name or self._default_scenario(category, level)
-        package = self._scenario_package(category, scenario)
+        scenario = scenario_name or f"{category} conversation practice"
         return GeneratedScenario(
             level=level,
             category=category,
             scenario_name=scenario,
-            scenario_context_cn=package["context_cn"],
-            starter_en=package["starter_en"],
-            starter_cn=package["starter_cn"],
-            phrases=package["phrases"],
+            scenario_context_cn=f"Practice {category} conversation at level {level}.",
+            starter_en="Hello. Let's practice this conversation together. Please start when you're ready.",
+            starter_cn="你好。让我们一起练习这个对话。准备好了就开始吧。",
+            phrases=[
+                ScenarioPhrase(en="Could you please repeat that?", cn="请你再说一遍好吗？", usage_note_cn="请求重复", tone="polite", favorite_candidate=True),
+                ScenarioPhrase(en="I understand.", cn="我明白了。", usage_note_cn="确认理解", tone="neutral", favorite_candidate=True),
+                ScenarioPhrase(en="Could you speak more slowly?", cn="你能说得慢一点吗？", usage_note_cn="请求放慢语速", tone="polite", favorite_candidate=True),
+                ScenarioPhrase(en="Thank you for your patience.", cn="谢谢你的耐心。", usage_note_cn="表达感谢", tone="polite", favorite_candidate=True),
+            ],
         )
 
     async def continue_conversation(
@@ -87,25 +92,9 @@ class MockAIClient(AIClient):
         latest_user_text: str,
         conversation_history: list[dict] | None = None,
     ) -> GeneratedTurn:
-        lowered = latest_user_text.lower()
-        if user_turns_count >= 4:
-            return GeneratedTurn(
-                text_en="Great. Let me summarize what we agreed on before we finish.",
-                text_cn="很好。结束前我来总结一下我们刚才确认的内容。",
-            )
-        if "sorry" in lowered or "problem" in lowered:
-            return GeneratedTurn(
-                text_en="No problem. Could you tell me what would work better for you?",
-                text_cn="没关系。你能告诉我什么安排对你更合适吗？",
-            )
-        if "could" in lowered or "would" in lowered or "please" in lowered:
-            return GeneratedTurn(
-                text_en="That sounds reasonable. Could you share one more detail?",
-                text_cn="听起来很合理。你能再补充一个细节吗？",
-            )
         return GeneratedTurn(
-            text_en="I see. Could you say that a little more politely and clearly?",
-            text_cn="我明白。你能说得更礼貌、更清楚一点吗？",
+            text_en="I see. Could you tell me more about that?",
+            text_cn="我明白了。你能告诉我更多吗？",
         )
 
     async def evaluate_conversation(
@@ -113,113 +102,19 @@ class MockAIClient(AIClient):
         session: GeneratedScenario,
         user_turns: list[str],
     ) -> ConversationEvaluation:
-        joined = " ".join(user_turns).lower()
-        turn_count = len([turn for turn in user_turns if turn.strip()])
-        polite = any(token in joined for token in ["could", "would", "please", "may", "thanks"])
-        phrase_hits = sum(1 for phrase in session.phrases if phrase.en.split()[0].lower() in joined)
-
-        base = 62 + min(turn_count, 4) * 6 + min(phrase_hits, 3) * 4 + (8 if polite else 0)
-        overall = min(base, 96)
+        turn_count = len([t for t in user_turns if t.strip()])
+        overall = min(60 + turn_count * 5, 85)
         return ConversationEvaluation(
             overall_score=overall,
-            vocabulary_score=min(overall + (4 if phrase_hits else -4), 100),
-            grammar_score=max(overall - 3, 0),
-            authenticity_score=min(overall + (3 if phrase_hits else -6), 100),
-            fluency_score=min(70 + turn_count * 6, 95),
-            feedback_cn=(
-                "你能围绕场景持续回应，已经进入真实对话练习的状态。"
-                "下一步重点是多借用左侧地道表达，并把需求说得更具体。"
-            ),
-            strengths=[
-                "能根据系统追问继续推进对话。",
-                "表达目标基本清楚，没有停留在单词层面。",
-            ],
-            improvements=[
-                "多使用 could/would/please 等礼貌表达。",
-                "每次回答尽量补充一个具体信息，例如时间、数量、原因或偏好。",
-            ],
-            suggested_phrases=session.phrases[:4],
+            vocabulary_score=min(overall + 5, 90),
+            grammar_score=max(overall - 5, 40),
+            authenticity_score=min(overall + 3, 88),
+            fluency_score=min(55 + turn_count * 8, 90),
+            feedback_cn="请继续练习，注意使用更多的礼貌表达。",
+            strengths=["能够完成对话练习。"],
+            improvements=["多使用礼貌用语如 could, would, please。", "尝试使用更多场景相关的短语。"],
+            suggested_phrases=session.phrases[:3],
         )
-
-    def _build_scenario_package_prompt(self, level: int, category: str, scenario_name: str | None) -> str:
-        return build_scenario_package_prompt(level, category, scenario_name)
-
-    def _default_scenario(self, category: str, level: int) -> str:
-        scenes = {
-            "business": "rescheduling a client meeting",
-            "travel": "checking in at a hotel",
-            "school": "asking a teacher about homework",
-            "restaurant": "making a restaurant reservation",
-        }
-        return scenes.get(category, LEVEL_PROFILES[level]["scenes"][0])
-
-    def _scenario_package(self, category: str, scenario: str) -> dict:
-        packages = {
-            "business": {
-                "context_cn": f"你正在处理 {scenario}，需要礼貌地确认安排并推进下一步。",
-                "starter_en": "Hi, thanks for joining. I wanted to check if our meeting time still works for you.",
-                "starter_cn": "你好，感谢参加。我想确认一下我们的会议时间是否仍然适合你。",
-                "phrases": [
-                    self._phrase("Would it be possible to reschedule?", "可以改个时间吗？", "委婉提出改期", "polite"),
-                    self._phrase("I wanted to check if this still works for you.", "我想确认这对你是否仍然合适。", "确认安排是否可行", "professional"),
-                    self._phrase("Could we move it to later this week?", "我们可以挪到本周晚些时候吗？", "提出新的时间范围", "polite"),
-                    self._phrase("Thanks for being flexible.", "谢谢你灵活配合。", "表达感谢", "polite"),
-                    self._phrase("Let me confirm the details by email.", "我邮件确认一下细节。", "收尾确认", "professional"),
-                    self._phrase("That time works for me.", "那个时间我可以。", "接受安排", "neutral"),
-                    self._phrase("I have a conflict at that time.", "那个时间我有冲突。", "说明时间冲突", "professional"),
-                    self._phrase("Could you send over the agenda?", "你能把议程发过来吗？", "请求会议信息", "polite"),
-                ],
-            },
-            "travel": {
-                "context_cn": f"你在 {scenario}，需要和工作人员确认预订、需求和入住信息。",
-                "starter_en": "Welcome. May I have your name and reservation details, please?",
-                "starter_cn": "欢迎。请告诉我您的姓名和预订信息好吗？",
-                "phrases": [
-                    self._phrase("I have a reservation under the name Li.", "我用李这个名字订了房。", "说明预订姓名", "neutral"),
-                    self._phrase("Could I check in now?", "我现在可以入住吗？", "询问能否入住", "polite"),
-                    self._phrase("Is breakfast included?", "包含早餐吗？", "确认服务内容", "neutral"),
-                    self._phrase("Could I have a room on a higher floor?", "可以给我高楼层房间吗？", "提出房间偏好", "polite"),
-                    self._phrase("What time is check-out?", "几点退房？", "确认退房时间", "neutral"),
-                    self._phrase("Could you help me with my luggage?", "你能帮我拿一下行李吗？", "请求帮助", "polite"),
-                    self._phrase("There may be a mistake with my booking.", "我的预订可能有点问题。", "礼貌说明问题", "polite"),
-                    self._phrase("Thank you for your help.", "谢谢你的帮助。", "表达感谢", "polite"),
-                ],
-            },
-            "school": {
-                "context_cn": f"你在 {scenario}，需要向老师或同学清楚询问信息。",
-                "starter_en": "Hi, what would you like to ask about the assignment?",
-                "starter_cn": "你好，你想问作业的什么问题？",
-                "phrases": [
-                    self._phrase("When is the assignment due?", "作业什么时候截止？", "询问截止时间", "neutral"),
-                    self._phrase("Could you explain this part again?", "您能再解释一下这部分吗？", "请求重复讲解", "polite"),
-                    self._phrase("I am not sure how to start.", "我不太确定怎么开始。", "表达困惑", "neutral"),
-                    self._phrase("Do we need to work in groups?", "我们需要小组合作吗？", "确认完成方式", "neutral"),
-                    self._phrase("Can I hand it in tomorrow?", "我可以明天交吗？", "询问能否延期", "polite"),
-                    self._phrase("I understand the main idea now.", "我现在明白大意了。", "确认理解", "neutral"),
-                    self._phrase("Could you give me an example?", "您能给我一个例子吗？", "请求示例", "polite"),
-                    self._phrase("Thanks, that helps a lot.", "谢谢，这很有帮助。", "表达感谢", "casual"),
-                ],
-            },
-            "restaurant": {
-                "context_cn": f"你在 {scenario}，需要自然地预订、点餐或确认需求。",
-                "starter_en": "Good evening. How many people will be dining with us tonight?",
-                "starter_cn": "晚上好。今晚有几位用餐？",
-                "phrases": [
-                    self._phrase("I would like to make a reservation.", "我想预订。", "开场说明需求", "polite"),
-                    self._phrase("A table for two, please.", "请给我们两人桌。", "说明人数", "polite"),
-                    self._phrase("Do you have any vegetarian options?", "你们有素食选择吗？", "询问饮食需求", "neutral"),
-                    self._phrase("Could we sit by the window?", "我们可以坐窗边吗？", "提出座位偏好", "polite"),
-                    self._phrase("What do you recommend?", "你推荐什么？", "请求推荐", "neutral"),
-                    self._phrase("Could we split the bill?", "我们可以分开付账吗？", "询问付款方式", "polite"),
-                    self._phrase("The food was excellent.", "食物很好吃。", "表达评价", "polite"),
-                    self._phrase("Could I get this to go?", "这个可以打包吗？", "请求打包", "polite"),
-                ],
-            },
-        }
-        return packages.get(category, packages["business"])
-
-    def _phrase(self, en: str, cn: str, note: str, tone: str) -> ScenarioPhrase:
-        return ScenarioPhrase(en=en, cn=cn, usage_note_cn=note, tone=tone, favorite_candidate=True)
 
 
 class LLMPhraseOutput(BaseModel):
@@ -256,9 +151,10 @@ class EvaluationOutput(BaseModel):
 
 
 class OpenAIClient(AIClient):
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, base_url: str | None = None) -> None:
         self.api_key = api_key
         self.model = model
+        self.base_url = base_url
 
     async def generate_scenario(
         self,
@@ -336,26 +232,119 @@ class OpenAIClient(AIClient):
     async def _parse(self, prompt: str, output_model: type[BaseModel]):
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=self.api_key)
-        response = await client.responses.parse(
+        client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        response = await client.chat.completions.create(
             model=self.model,
-            input=[
+            messages=[
                 {
-                    "role": "developer",
+                    "role": "system",
                     "content": (
                         "You are SpeakScene's AI service. Return only data matching the requested "
                         "structured output schema. English should be natural and useful for spoken practice; "
-                        "Chinese fields should be clear Simplified Chinese."
+                        "Chinese fields should be clear Simplified Chinese. Output valid JSON only, "
+                        "no markdown, no explanation, no thinking tags. "
+                        "IMPORTANT: For phrase objects, use keys: en, cn, usage_note_cn, tone, favorite_candidate"
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
-            text_format=output_model,
+            temperature=0.8,
         )
-        parsed = response.output_parsed
-        if parsed is None:
-            raise ValueError("OpenAI response did not include parsed structured output")
-        return parsed
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("OpenAI response did not include content")
+        import json
+        # Try multiple extraction strategies to find valid JSON
+        json_str = None
+
+        # Strategy 1: Find the last { and last } after it (handles thinking tags at start)
+        think_end = content.rfind('<think>')
+        if think_end != -1:
+            json_start = content.find('{', think_end)
+            if json_start != -1:
+                # Find matching closing brace - search for } that closes the first {
+                depth = 0
+                json_end = -1
+                for i in range(json_start, len(content)):
+                    if content[i] == '{':
+                        depth += 1
+                    elif content[i] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            json_end = i
+                            break
+                if json_end != -1:
+                    json_str = content[json_start:json_end + 1]
+
+        # Strategy 2: If that failed, find the first { and try to parse from there
+        if json_str is None:
+            json_start = content.find('{')
+            if json_start != -1:
+                # Try to find a valid JSON by finding the first } that gives balanced braces
+                depth = 0
+                json_end = -1
+                for i in range(json_start, len(content)):
+                    if content[i] == '{':
+                        depth += 1
+                    elif content[i] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            json_end = i
+                            break
+                if json_end != -1:
+                    json_str = content[json_start:json_end + 1]
+
+        # Strategy 3: Try to extract from markdown code blocks
+        if json_str is None:
+            import re
+            # Look for JSON in code blocks
+            code_blocks = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if code_blocks:
+                # Find the largest/last code block content
+                for block in code_blocks:
+                    try:
+                        json_str = block
+                        json.loads(json_str)  # Test if valid
+                        break
+                    except:
+                        continue
+
+        if json_str is None:
+            raise ValueError(f"No valid JSON found in response: {content[:200]}")
+
+        # Normalize field names to handle schema differences
+        data = json.loads(json_str)
+
+        # Handle suggested_phrases schema mismatch
+        if "suggested_phrases" in data and isinstance(data["suggested_phrases"], list):
+            normalized_phrases = []
+            for phrase in data["suggested_phrases"]:
+                if "en" not in phrase and "phrase_en" in phrase:
+                    phrase["en"] = phrase.pop("phrase_en")
+                if "cn" not in phrase and "phrase_cn" in phrase:
+                    phrase["cn"] = phrase.pop("phrase_cn")
+                if "usage_note_cn" not in phrase and "note" in phrase:
+                    phrase["usage_note_cn"] = phrase.pop("note")
+                normalized_phrases.append(phrase)
+            data["suggested_phrases"] = normalized_phrases
+
+        try:
+            return output_model.model_validate(data)
+        except Exception as e:
+            logger.warning(f"Validation failed, attempting to normalize data: {e}")
+            # Try to normalize common field mismatches for phrases
+            for key in ["phrases", "suggested_phrases"]:
+                if key in data and isinstance(data[key], list):
+                    for phrase in data[key]:
+                        if "phrase_en" in phrase and "en" not in phrase:
+                            phrase["en"] = phrase.pop("phrase_en")
+                        if "phrase_cn" in phrase and "cn" not in phrase:
+                            phrase["cn"] = phrase.pop("phrase_cn")
+                        if "usage_note" in phrase and "usage_note_cn" not in phrase:
+                            phrase["usage_note_cn"] = phrase.pop("usage_note")
+                        if "note" in phrase and "usage_note_cn" not in phrase:
+                            phrase["usage_note_cn"] = phrase.pop("note")
+            return output_model.model_validate(data)
 
 
 class FallbackAIClient(AIClient):
@@ -411,12 +400,13 @@ class FallbackAIClient(AIClient):
 
 
 def get_ai_client() -> AIClient:
-    mock_client = MockAIClient()
+    fallback_client = MinimalFallbackAIClient()
     if settings.ai_provider.lower() != "openai":
-        return mock_client
+        return fallback_client
     if not settings.openai_api_key:
-        return mock_client
+        logger.warning("OpenAI provider selected but OPENAI_API_KEY is not set; using minimal fallback")
+        return fallback_client
     return FallbackAIClient(
-        OpenAIClient(api_key=settings.openai_api_key, model=settings.openai_model),
-        mock_client,
+        OpenAIClient(api_key=settings.openai_api_key, model=settings.openai_model, base_url=settings.openai_base_url),
+        fallback_client,
     )

@@ -361,9 +361,9 @@ export default function App() {
   }, [turns.length])
 
   return (
-    <main className="min-h-screen bg-skyglass text-ink pb-20 lg:pb-0">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col px-4 py-4 sm:px-6">
-        <header className="flex flex-col gap-3 border-b border-ink/10 pb-4 lg:flex-row lg:items-center lg:justify-between">
+    <main className="h-screen bg-skyglass text-ink pb-20 lg:pb-0 overflow-hidden">
+      <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col px-4 py-4 sm:px-6">
+        <header className="shrink-0 flex flex-col gap-3 border-b border-ink/10 pb-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-3">
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-leaf">SpeakScene</p>
@@ -392,8 +392,8 @@ export default function App() {
           </div>
         </header>
 
-        <section className={`grid flex-1 gap-4 py-4 ${focusMode ? "xl:grid-cols-1 max-w-4xl mx-auto w-full" : "xl:grid-cols-[360px_minmax(430px,1fr)_360px]"}`}>
-          <aside className={`rounded-lg bg-paper p-4 shadow-panel ${mobileTab === "phrases" ? "block" : "hidden"} lg:block ${focusMode ? "lg:hidden" : ""}`}>
+        <section className={`grid flex-1 gap-4 py-4 overflow-hidden ${focusMode ? "xl:grid-cols-1 max-w-4xl mx-auto w-full" : "xl:grid-cols-[360px_minmax(430px,1fr)_360px]"}`}>
+          <aside className={`rounded-lg bg-paper p-4 shadow-panel overflow-y-auto ${mobileTab === "phrases" ? "block" : "hidden"} lg:block ${focusMode ? "lg:hidden" : ""}`}>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-moss">当前场景</p>
@@ -489,7 +489,7 @@ export default function App() {
             </div>
           </aside>
 
-          <section className={`flex min-h-[760px] flex-col rounded-lg bg-paper p-4 shadow-panel ${mobileTab === "chat" ? "block" : "hidden"} lg:flex`}>
+          <section className={`flex flex-col rounded-lg bg-paper p-4 shadow-panel overflow-hidden ${mobileTab === "chat" ? "block" : "hidden"} lg:flex`}>
             <div className="flex flex-col gap-3 border-b border-ink/10 pb-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="flex items-center gap-3">
@@ -559,7 +559,7 @@ export default function App() {
               })}
             </div>
 
-            <div className="border-t border-ink/10 pt-3">
+            <div className="shrink-0 border-t border-ink/10 pt-3">
               <div className="mb-3 flex flex-wrap gap-2 items-center justify-between">
                 <div className="flex gap-2">
                   <button
@@ -628,7 +628,7 @@ export default function App() {
             </div>
           </section>
 
-          <aside className={`space-y-4 ${mobileTab === "stats" ? "block" : "hidden"} lg:block ${focusMode ? "lg:hidden" : ""}`}>
+          <aside className={`space-y-4 overflow-y-auto ${mobileTab === "stats" ? "block" : "hidden"} lg:block ${focusMode ? "lg:hidden" : ""}`}>
             <section className="rounded-lg bg-paper p-4 shadow-panel" ref={evalCardRef}>
               <div className="flex items-center justify-between">
                 <p className="text-sm font-bold text-moss">AI 评分</p>

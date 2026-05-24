@@ -4,9 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "SpeakScene API"
     database_url: str = "sqlite:///./speakscene.db"
-    ai_provider: str = "mock"
-    openai_api_key: str | None = None
-    openai_model: str = "gpt-5.4-mini"
+    ai_provider: str = "openai"
+    openai_api_key: str | None = "sk-cp-9SX3RaY-EKOLupMi3ChYaogOhRQ2B9h4d0-dn9XEva42n5Qx52ojbe_FOAA3AYa5ojMlFNrSU7yWczFLHqo-Zm2CQiYG5TppD_rrIb7rDmftXki58H18mZE"
+    openai_base_url: str | None = "https://api.minimaxi.com/v1"
+    openai_model: str = "MiniMax-M2.7"
     elevenlabs_api_key: str | None = None
     elevenlabs_voice_id: str = "JBFqnCBsd6RMkjVDRZzb"
     elevenlabs_model_id: str = "eleven_v3"
