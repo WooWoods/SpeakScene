@@ -70,11 +70,33 @@ class FavoriteExpression(Base):
     phrase_en: Mapped[str] = mapped_column(Text)
     phrase_cn: Mapped[str] = mapped_column(Text)
     usage_note_cn: Mapped[str] = mapped_column(Text, default="")
-    
+
     # SRS Fields (SuperMemo-2)
     next_review_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     repetition: Mapped[int] = mapped_column(Integer, default=0)
     interval: Mapped[int] = mapped_column(Integer, default=1)
     ease_factor: Mapped[float] = mapped_column(Float, default=2.5)
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class StoredScenario(Base):
+    """Cached generated scenarios keyed by (level, category, scenario_name).
+
+    Phrases are stored once and reused on subsequent page loads rather than
+    calling the LLM every time.
+    """
+    __tablename__ = "stored_scenarios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    level: Mapped[int] = mapped_column(Integer, index=True)
+    category: Mapped[str] = mapped_column(String(80), index=True)
+    scenario_name: Mapped[str] = mapped_column(String(160), index=True)
+    scenario_context_cn: Mapped[str] = mapped_column(Text)
+    starter_en: Mapped[str] = mapped_column(Text)
+    starter_cn: Mapped[str] = mapped_column(Text)
+    phrases: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    is_default: Mapped[bool] = mapped_column(default=False)  # True for pre-seeded scenarios
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    

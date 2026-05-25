@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, date
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
-from app.models.practice import ConversationTurn, FavoriteExpression, ScenarioSession, User
+from app.models.practice import ConversationTurn, FavoriteExpression, ScenarioSession, StoredScenario, User
 from app.schemas.practice import (
     ConversationEvaluation,
     FavoriteCreateRequest,
@@ -41,30 +41,33 @@ def _session_response(session: ScenarioSession) -> ScenarioSessionResponse:
     return ScenarioSessionResponse.model_validate(session)
 
 
-async def start_scenario(db: Session, payload: ScenarioStartRequest) -> ScenarioSession:
-    user = get_or_create_default_user(db)
-    if not payload.user_id:
-        payload.user_id = user.id
-        
-    # Active Recall: fetch due favorites
-    due_favorites = db.query(FavoriteExpression).filter(
-        FavoriteExpression.user_id == user.id,
-        FavoriteExpression.next_review_date <= datetime.utcnow()
-    ).limit(2).all()
-    
-    recall_prompt = ""
-    if due_favorites:
-        phrases = [f.phrase_en for f in due_favorites]
-        recall_prompt = f" ACTIVE RECALL: Please subtly prompt the user to use these phrases during the conversation: {', '.join(phrases)}."
+async def get_or_generate_stored_scenario(
+    db: Session,
+    level: int,
+    category: str,
+    scenario_name: str | None,
+) -> StoredScenario:
+    """Query-first pattern: check DB for existing scenario, fall back to LLM generation.
 
+    If scenario_name is provided, match on (level, category, scenario_name).
+    If not provided, pick any existing scenario for the level/category, or generate one.
+    """
+    query = db.query(StoredScenario).filter(
+        StoredScenario.level == level,
+        StoredScenario.category == category,
+    )
+    if scenario_name:
+        query = query.filter(StoredScenario.scenario_name == scenario_name)
+    stored = query.first()
+
+    if stored is not None:
+        return stored
+
+    # Not in DB - call LLM to generate
     ai_client = get_ai_client()
-    generated = await ai_client.generate_scenario(payload.level, payload.category, payload.scenario_name)
-    
-    if recall_prompt:
-        generated.scenario_context_cn += f"\n\n(AI 记忆提示：在对话中试着使用你之前收藏的短语吧！)"
-        
-    session = ScenarioSession(
-        user_id=payload.user_id,
+    generated = await ai_client.generate_scenario(level, category, scenario_name)
+
+    stored = StoredScenario(
         level=generated.level,
         category=generated.category,
         scenario_name=generated.scenario_name,
@@ -72,6 +75,46 @@ async def start_scenario(db: Session, payload: ScenarioStartRequest) -> Scenario
         starter_en=generated.starter_en,
         starter_cn=generated.starter_cn,
         phrases=[phrase.model_dump() for phrase in generated.phrases],
+    )
+    db.add(stored)
+    db.commit()
+    db.refresh(stored)
+    return stored
+
+
+async def start_scenario(db: Session, payload: ScenarioStartRequest) -> ScenarioSession:
+    user = get_or_create_default_user(db)
+    if not payload.user_id:
+        payload.user_id = user.id
+
+    # Active Recall: fetch due favorites
+    due_favorites = db.query(FavoriteExpression).filter(
+        FavoriteExpression.user_id == user.id,
+        FavoriteExpression.next_review_date <= datetime.utcnow()
+    ).limit(2).all()
+
+    recall_prompt = ""
+    if due_favorites:
+        phrases = [f.phrase_en for f in due_favorites]
+        recall_prompt = f" ACTIVE RECALL: Please subtly prompt the user to use these phrases during the conversation: {', '.join(phrases)}."
+
+    # Query-first pattern: check DB for existing scenario, fall back to LLM
+    stored = await get_or_generate_stored_scenario(db, payload.level, payload.category, payload.scenario_name)
+
+    # Build session from stored scenario data
+    scenario_context_cn = stored.scenario_context_cn
+    if recall_prompt:
+        scenario_context_cn += f"\n\n(AI 记忆提示：在对话中试着使用你之前收藏的短语吧！)"
+
+    session = ScenarioSession(
+        user_id=payload.user_id,
+        level=stored.level,
+        category=stored.category,
+        scenario_name=stored.scenario_name,
+        scenario_context_cn=scenario_context_cn,
+        starter_en=stored.starter_en,
+        starter_cn=stored.starter_cn,
+        phrases=stored.phrases,  # Already stored as list[dict] in DB
         status="active",
     )
     db.add(session)
@@ -80,8 +123,8 @@ async def start_scenario(db: Session, payload: ScenarioStartRequest) -> Scenario
         ConversationTurn(
             session_id=session.id,
             speaker="system",
-            text_en=generated.starter_en,
-            text_cn=generated.starter_cn,
+            text_en=stored.starter_en,
+            text_cn=stored.starter_cn,
             input_mode="system",
         )
     )

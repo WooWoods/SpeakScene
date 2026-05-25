@@ -3,6 +3,7 @@ import {
   BookmarkCheck,
   Bot,
   CheckCircle2,
+  Dice5,
   Loader2,
   Mic,
   Play,
@@ -13,6 +14,7 @@ import {
   Quote,
   Maximize2,
   Minimize2,
+  Ear,
   EarOff,
   MessageSquare,
   BarChart2,
@@ -21,6 +23,7 @@ import {
   BrainCircuit,
   Target,
   Award,
+  X,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, Radar, Tooltip } from "recharts"
@@ -116,6 +119,9 @@ export default function App() {
   const [handsFreeMode, setHandsFreeMode] = useState(false)
   const [user, setUser] = useState(null)
   const [dailyChallenge, setDailyChallenge] = useState(null)
+  const [showNewScenarioDialog, setShowNewScenarioDialog] = useState(false)
+  const [newScenarioName, setNewScenarioName] = useState("")
+  const [generatingRandom, setGeneratingRandom] = useState(false)
   const evalCardRef = useRef(null)
   
   const recognitionRef = useRef(null)
@@ -136,6 +142,15 @@ export default function App() {
     () => typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window),
     [],
   )
+
+  // Re-check speech support dynamically to handle browsers that load API after user gesture
+  const isSpeechApiAvailable = useMemo(
+    () => typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition),
+    [],
+  )
+
+  // Determine if voice input is currently usable (API available + not actively listening)
+  const canUseVoice = isSpeechApiAvailable && !listening
 
   const turns = session?.turns ?? []
   const canSend = Boolean(session && typedText.trim() && !sending && session.status === "active")
@@ -198,13 +213,13 @@ export default function App() {
     }
   }
 
-  async function loadScenario(nextLevel = level, nextCategory = category) {
+  async function loadScenario(nextLevel = level, nextCategory = category, scenarioName = null) {
     setLoading(true)
     setError("")
     setEvaluation(null)
     setTypedText("")
     try {
-      const nextSession = await startScenario({ level: nextLevel, category: nextCategory })
+      const nextSession = await startScenario({ level: nextLevel, category: nextCategory, scenarioName })
       setSession(nextSession)
       window.setTimeout(() => {
         speak(nextSession.starter_en)
@@ -214,6 +229,32 @@ export default function App() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleRandomScenario() {
+    setGeneratingRandom(true)
+    try {
+      const randomCategory = categories[Math.floor(Math.random() * categories.length)].id
+      const randomLevel = levels[Math.floor(Math.random() * levels.length)].id
+      const nextSession = await startScenario({ level: randomLevel, category: randomCategory })
+      setNewScenarioName(nextSession.scenario_name)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setGeneratingRandom(false)
+    }
+  }
+
+  async function handleSubmitNewScenario() {
+    const scenarioName = newScenarioName.trim() || undefined
+    setShowNewScenarioDialog(false)
+    setNewScenarioName("")
+    await loadScenario(level, category, scenarioName)
+  }
+
+  function handleCancelNewScenario() {
+    setShowNewScenarioDialog(false)
+    setNewScenarioName("")
   }
 
   async function handleSend(inputMode = "typing", textOverride = null) {
@@ -294,20 +335,26 @@ export default function App() {
   }
 
   function startListening() {
-    if (!speechSupported || listeningRef.current) return
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    const recognition = new Recognition()
+    if (listeningRef.current) return
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setError("语音识别不可用，请使用 Chrome 或 Edge 浏览器")
+      return
+    }
+
+    const recognition = new SpeechRecognition()
     recognition.lang = "en-US"
     recognition.interimResults = true
     recognition.maxAlternatives = 1
-    
+
     let currentTranscript = ""
 
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results)
         .map((result) => result[0].transcript)
         .join("")
-        
+
       currentTranscript = transcript
       setTypedText(transcript)
 
@@ -322,13 +369,25 @@ export default function App() {
         }, 1500)
       }
     }
-    recognition.onerror = () => setListening(false)
+    recognition.onerror = (event) => {
+      setListening(false)
+      if (event.error === "not-allowed") {
+        setError("请允许使用麦克风权限后重试")
+      } else if (event.error === "no-speech") {
+        // Silent - no speech detected is not really an error worth showing
+      } else if (event.error === "aborted") {
+        // User stopped manually, not an error
+      } else {
+        setError(`语音识别错误: ${event.error}`)
+      }
+    }
     recognition.onend = () => {
       setListening(false)
       clearTimeout(silenceTimerRef.current)
     }
     recognitionRef.current = recognition
     setListening(true)
+    setError("") // Clear any previous errors
     recognition.start()
   }
 
@@ -392,8 +451,8 @@ export default function App() {
           </div>
         </header>
 
-        <section className={`grid flex-1 gap-4 py-4 overflow-hidden ${focusMode ? "xl:grid-cols-1 max-w-4xl mx-auto w-full" : "xl:grid-cols-[360px_minmax(430px,1fr)_360px]"}`}>
-          <aside className={`rounded-lg bg-paper p-4 shadow-panel overflow-y-auto ${mobileTab === "phrases" ? "block" : "hidden"} lg:block ${focusMode ? "lg:hidden" : ""}`}>
+        <section className={`grid flex-1 gap-4 py-4 overflow-hidden ${focusMode ? "xl:grid-cols-1 max-w-4xl mx-auto w-full" : "grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[minmax(240px,280px)_minmax(340px,1fr)_minmax(240px,280px)] xl:grid-cols-[360px_minmax(430px,1fr)_360px]"}`}>
+          <aside className={`rounded-lg bg-paper p-4 shadow-panel overflow-y-auto ${mobileTab === "phrases" ? "block" : "hidden"} md:block ${focusMode ? "lg:hidden" : ""}`}>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-moss">当前场景</p>
@@ -401,7 +460,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                onClick={() => loadScenario(level, category)}
+                onClick={() => setShowNewScenarioDialog(true)}
                 className="inline-flex h-9 items-center gap-1 rounded-md bg-leaf px-3 text-sm font-bold text-white hover:bg-leaf/90"
               >
                 <Plus size={16} />
@@ -489,7 +548,7 @@ export default function App() {
             </div>
           </aside>
 
-          <section className={`flex flex-col rounded-lg bg-paper p-4 shadow-panel overflow-hidden ${mobileTab === "chat" ? "block" : "hidden"} lg:flex`}>
+          <section className={`flex flex-col rounded-lg bg-paper p-4 shadow-panel overflow-hidden ${mobileTab === "chat" ? "block" : "hidden"} md:flex`}>
             <div className="flex flex-col gap-3 border-b border-ink/10 pb-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="flex items-center gap-3">
@@ -565,7 +624,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={listening ? stopListening : startListening}
-                    disabled={!speechSupported || (handsFreeMode && listening)}
+                    disabled={handsFreeMode && listening}
                     className={`inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50 ${
                       listening ? "bg-coral/10 border-coral text-coral" : "border-ink/10 bg-white text-moss hover:bg-skyglass"
                     }`}
@@ -582,7 +641,7 @@ export default function App() {
                     ) : (
                       <Mic size={16} />
                     )}
-                    {speechSupported ? (listening ? "正在聆听..." : "语音输入") : "语音不可用"}
+                    {isSpeechApiAvailable ? (listening ? "正在聆听..." : "语音输入") : "语音不可用"}
                   </button>
                   <button
                     type="button"
@@ -628,7 +687,7 @@ export default function App() {
             </div>
           </section>
 
-          <aside className={`space-y-4 overflow-y-auto ${mobileTab === "stats" ? "block" : "hidden"} lg:block ${focusMode ? "lg:hidden" : ""}`}>
+          <aside className={`space-y-4 overflow-y-auto ${mobileTab === "stats" ? "block" : "hidden"} md:block ${focusMode ? "lg:hidden" : ""}`}>
             <section className="rounded-lg bg-paper p-4 shadow-panel" ref={evalCardRef}>
               <div className="flex items-center justify-between">
                 <p className="text-sm font-bold text-moss">AI 评分</p>
@@ -802,6 +861,64 @@ export default function App() {
             <span className="text-[10px] font-bold">复盘</span>
           </button>
         </nav>
+
+        {/* New Scenario Dialog */}
+        {showNewScenarioDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-xl bg-paper p-6 shadow-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-black text-ink">创建新场景</h3>
+                <button
+                  type="button"
+                  onClick={handleCancelNewScenario}
+                  className="grid h-8 w-8 place-items-center rounded-full hover:bg-ink/10"
+                >
+                  <X size={18} className="text-moss" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-bold text-moss">场景名称（可选）</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newScenarioName}
+                      onChange={(e) => setNewScenarioName(e.target.value)}
+                      placeholder="留空则由 AI 自动生成"
+                      className="flex-1 rounded-lg border border-ink/15 bg-white px-3 py-2.5 text-sm outline-none focus:border-leaf focus:ring-4 focus:ring-leaf/10"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRandomScenario}
+                      disabled={generatingRandom}
+                      className="inline-flex h-11 items-center gap-2 rounded-lg border border-ink/15 bg-white px-3 text-sm font-bold text-moss hover:bg-skyglass disabled:opacity-50"
+                      title="随机生成场景"
+                    >
+                      {generatingRandom ? <Loader2 size={16} className="animate-spin" /> : <Dice5 size={16} />}
+                      随机
+                    </button>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCancelNewScenario}
+                    className="h-10 rounded-lg border border-ink/15 px-4 text-sm font-bold text-moss hover:bg-ink/5"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmitNewScenario}
+                    className="h-10 rounded-lg bg-leaf px-4 text-sm font-bold text-white hover:bg-leaf/90"
+                  >
+                    开始练习
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   )
